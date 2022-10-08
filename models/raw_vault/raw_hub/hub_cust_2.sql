@@ -14,7 +14,7 @@ select * from HUB
     materialized='delta_patterns',
     primary_keys= src_nk ,
     target_database= 'DBT_DEV_DB',
-    target_schema= 'SANDHIYA',
+    target_schema= 'KALAYARASI',
     target_table= 'VAULT_FULL_APPLY_TARGET',
     job_name='FULL_APPLY',
     etl_insert_job_run_id = '1022',

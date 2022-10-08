@@ -21,7 +21,7 @@
     materialized='delta_patterns',
     primary_keys= src_nk ,
     target_database= 'DBT_DEV_DB',
-    target_schema= 'SANDHIYA',
+    target_schema= 'KALAYARASI',
     target_table= 'VAULT_SCD_TARGET',
     job_name='SCD',
     etl_insert_job_run_id = '1022',
