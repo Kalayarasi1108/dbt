@@ -16,19 +16,14 @@ models:
         - name: cust_add
           description: It is the address column for Customer table
           tests:
-              - not_null
         - name: cust_country
           description: It is the country column for Customer table
-          tests:
-              - not_null
         - name: cust_phone
           description: It is the phone number column for Customer table
-          tests:
-              - not_null
+
         - name: cust_acctbal
           description: It is the non-key column for Customer table
-          tests:
-              - not_null            
+           
         - name: EFFECTIVE_DATE
           description: It is the source date column for Customer table.It is mandatory column.
           tests:
@@ -54,29 +49,19 @@ models:
         - name: CUST_HK
           description: It is the hashed value column for primary key. It is business key column
           tests:
-              - not_null
+              - unique
         - name: cust_name
           description: It is the name column for Customer table
-          tests:
-              - not_null
         - name: cust_add
           description: It is the address column for Customer table
-          tests:
-              - not_null
         - name: cust_country
           description: It is the country column for Customer table
-          tests:
-              - not_null
         - name: cust_phone
           description: It is the phone number column for Customer table
-          tests:
-              - not_null
         - name: cust_acctbal
           description: It is the non-key column for Customer table
-          tests:
-              - not_null            
         - name: EFFECTIVE_DATE
-          description: It is the source date column for Customer table.It is mandatory column.
+          description: It is the source date column for Customer table. It is mandatory column.
           tests:
               - not_null
         - name: ETL_ROW_DELETED_FLAG
@@ -112,23 +97,15 @@ models:
         - name: CUST_HK
           description: It is the hashed value column for primary key. It is business key column
           tests:
-            - not_null
+            - unique
         - name: cust_name
           description: It is the name column for Customer table
-          tests:
-              - not_null
         - name: cust_add
           description: It is the address column for Customer table
-          tests:
-              - not_null
         - name: cust_country
           description: It is the country column for Customer table
-          tests:
-              - not_null
         - name: cust_phone
           description: It is the phone number column for Customer table
-          tests:
-              - not_null
         - name: cust_acctbal
           description: It is the non-key column for Customer table
           tests:
@@ -148,6 +125,3 @@ models:
           description: This identifies when the record was first time loaded into the database.
           tests:
               - not_null 
-                  
-              
-        

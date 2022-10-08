@@ -5,8 +5,11 @@ derived_columns:
   LOAD_DATETIME: effective_date
   EFFECTIVE_FROM: effective_date
 hashed_columns:
-  CUST_HK: "CUST_ID" 
-  
+  CUST_HK: "CUST_ID"
+  ID_NAME_HK:
+    - "CUST_ID"
+    - "CUST_NAME"
+
 {%- endset -%}
 
 {% set metadata_dict = fromyaml(yaml_metadata) %}

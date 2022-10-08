@@ -1,5 +1,4 @@
 {% macro append_only(
-        job_run_id,
         target_database,
         target_schema,
         target_table,
@@ -15,7 +14,6 @@
 
 
     {% set run_dict = {} %}
- 
 
    
     {# getting path for source,
@@ -204,7 +202,7 @@ ALTER TABLE
 
     {% endif %}
 
-    {{ log_job_plan(job_run_id,run_dict) }}
+    {{ log_job_plan(run_dict,target_schema,target_table) }}
 
 {% endmacro %}
 
