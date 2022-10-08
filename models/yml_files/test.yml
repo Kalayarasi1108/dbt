@@ -1,0 +1,153 @@
+version: 2
+
+models:      
+  - name: raw_stage
+    description: It is staging file which is derived from source tables.
+    columns: 
+        - name: cust_id
+          description: It is the primary key column for customer table.
+          tests :
+              - unique
+              - not_null
+        - name: cust_name
+          description: It is the name column for Customer table
+          tests:
+              - not_null
+        - name: cust_add
+          description: It is the address column for Customer table
+          tests:
+              - not_null
+        - name: cust_country
+          description: It is the country column for Customer table
+          tests:
+              - not_null
+        - name: cust_phone
+          description: It is the phone number column for Customer table
+          tests:
+              - not_null
+        - name: cust_acctbal
+          description: It is the non-key column for Customer table
+          tests:
+              - not_null            
+        - name: EFFECTIVE_DATE
+          description: It is the source date column for Customer table.It is mandatory column.
+          tests:
+              - not_null
+        - name: ETL_ROW_DELETED_FLAG
+          description: It is a mandatory column for delta.
+          tests:
+            - accepted_values:
+                values:
+                    - N
+                    - Y
+  - name: hash_stage
+    description: It is a hashed stage which is derived from raw stage.
+    columns: 
+        - name: CUST_ID
+          description: It is the foreign key column as will as natural key for source table.
+          tests:
+              - unique
+              - not_null
+              - relationships:
+                  to: ref('raw_stage')
+                  field: cust_id
+        - name: CUST_HK
+          description: It is the hashed value column for primary key. It is business key column
+          tests:
+              - not_null
+        - name: cust_name
+          description: It is the name column for Customer table
+          tests:
+              - not_null
+        - name: cust_add
+          description: It is the address column for Customer table
+          tests:
+              - not_null
+        - name: cust_country
+          description: It is the country column for Customer table
+          tests:
+              - not_null
+        - name: cust_phone
+          description: It is the phone number column for Customer table
+          tests:
+              - not_null
+        - name: cust_acctbal
+          description: It is the non-key column for Customer table
+          tests:
+              - not_null            
+        - name: EFFECTIVE_DATE
+          description: It is the source date column for Customer table.It is mandatory column.
+          tests:
+              - not_null
+        - name: ETL_ROW_DELETED_FLAG
+          description: It is a mandatory column for delta.
+          tests:
+            - accepted_values:
+                values:
+                    - N
+                    - Y      
+        - name: RECORD_SOURCE
+          description: The source for the record. This can be a external lookup table or a string directly naming the source system.
+          tests:
+              - not_null
+        - name: LOAD_DATETIME
+          description: This identifies when the record was first time loaded into the database.
+          tests:
+              - not_null
+        - name: EFFECTIVE_FROM
+          description: It is the source date column for Customer table.It is mandatory column.
+          tests:
+               - not_null
+  - name: hub_dbt
+    description: It is a file to set a configuration values for materilaization.
+    columns: 
+        - name: CUST_ID
+          description: It is the foreign key column as will as natural key for source table.
+          tests:
+            - unique
+            - not_null
+            - relationships:
+                to: ref('hash_stage')
+                field: CUST_ID
+        - name: CUST_HK
+          description: It is the hashed value column for primary key. It is business key column
+          tests:
+            - not_null
+        - name: cust_name
+          description: It is the name column for Customer table
+          tests:
+              - not_null
+        - name: cust_add
+          description: It is the address column for Customer table
+          tests:
+              - not_null
+        - name: cust_country
+          description: It is the country column for Customer table
+          tests:
+              - not_null
+        - name: cust_phone
+          description: It is the phone number column for Customer table
+          tests:
+              - not_null
+        - name: cust_acctbal
+          description: It is the non-key column for Customer table
+          tests:
+              - not_null            
+        - name: ETL_ROW_DELETED_FLAG
+          description: It is a mandatory column for delta.
+          tests:
+            - accepted_values:
+                values:
+                    - N
+                    - Y   
+        - name: RECORD_SOURCE
+          description: The source for the record. This can be a external lookup table or a string directly naming the source system.
+          tests:
+              - not_null
+        - name: LOAD_DATETIME
+          description: This identifies when the record was first time loaded into the database.
+          tests:
+              - not_null 
+                  
+              
+        

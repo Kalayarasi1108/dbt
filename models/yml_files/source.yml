@@ -1,0 +1,79 @@
+version: 2
+
+sources:
+
+  - name: DBT_VAULT
+
+    database: DBT_DEV_DB
+
+    schema: SOURCE_SCHEMA
+
+    tables:
+    
+      - name: CUST_SOURCE
+        description: It is a Customer source table
+        columns: 
+          - name: c_custkey
+            description: It is the primary key column for customer table.
+            tests :
+                - unique
+                - not_null
+          - name: c_name
+            description: It is the name column for Customer table
+            tests:
+                - not_null
+          - name: c_address
+            description: It is the address column for Customer table
+            tests:
+                - not_null
+          - name: c_nationkey
+            description: It is the non-key number column for Customer table
+            tests:
+                - not_null
+          - name: c_phone
+            description: It is the phone number column for Customer table
+            tests:
+                - not_null
+          - name: c_acctbal
+            description: It is the non-key column for Customer table
+            tests:
+                - not_null 
+          - name: c_mktsegment
+            description: It is the non-key column for Customer table
+            tests:
+                - not_null
+          - name: c_comment
+            description: It is the comment column for Customer table
+            tests:
+                - not_null              
+          - name: EFFECTIVE_DATE
+            description: It is the source date column for Customer table.It is mandatory column.
+            tests:
+                - not_null
+          - name: ETL_ROW_DELETED_FLAG
+            description: It is a mandatory column for delta.
+            tests:
+              - accepted_values:
+                  values:
+                      - N
+                      - Y
+      - name: NATION_SOURCE
+        description: It is a nation source table
+        columns: 
+          - name: n_nationkey
+            description: It is the primary key column for nation table.
+            tests :
+                - unique
+                - not_null
+          - name: n_name
+            description: It is the name column for nation table
+            tests:
+                - not_null
+          - name: n_regionkey 
+            description: It is the non-key column for nation table
+            tests:
+                - not_null
+          - name: n_comment
+            description: It is the comment column for nation table
+            tests:
+                - not_null     
