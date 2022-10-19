@@ -4,26 +4,18 @@
         target_table,
         source_database,
         source_schema,
-        source_table,
-        etl_insert_job_run_id,
-        etl_update_job_run_id,
-        etl_insert_job_name,
-        etl_update_job_name
+        source_table
     ) %}
-    {{ print('MACRO CALLED SUCESSFULLY!') }}
-
 
     {% set run_dict = {} %}
 
-   
     {# getting path for source,
     target,
     stage TABLE #} 
-    {% set source_relation = adapter.get_relation(database = source_database,schema = source_schema,identifier = source_table) %}
     {% set target_relation = adapter.get_relation(database = target_database,schema = target_schema,identifier = target_table) %}
 
     {% set stg_table = source_database ~ '.' ~ source_schema ~ '.' ~ source_table ~ '_STG' %}
-    {# getting column names #} {%- set src_columns = (adapter.get_columns_in_relation(source_relation)) -%}
+    {# getting column names #} {%- set src_columns = (adapter.get_columns_in_relation(this)) -%}
     {%- set src_columns_csv = get_quoted_csv(src_columns | map(attribute = "column")) -%}
     {# here converted th column names INTO A single list #} 
     {%- set src_columns_list = src_columns_csv.replace(" ","").split(',') %}
@@ -48,7 +40,7 @@ SELECT
         {% endif %}
     {% endfor %}
 FROM
-    {{ source_relation }}
+    {{ this }}
 
     {% endset %}
 
@@ -61,7 +53,6 @@ FROM
         stg_table,
         stg_sql
     ) }}
-    {{ print('Stage table created!') }}
 ALTER TABLE
     {{ stg_table }}
     SET data_retention_time_in_days = 0;
@@ -83,7 +74,7 @@ ALTER TABLE
                 "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                 
         {% do run_dict.update( {"stg_dict" : stg_dict} )%}
-        {{print('stg_sql_execution Failed')}}
+       
     {% endif %}
 
     {# checking THE target TABLE IS already exist OR NOT !#} 
@@ -110,8 +101,8 @@ ALTER TABLE
     ALTER TABLE
     {{ target_relation }}
     ADD(
-    etl_insert_audit_key NUMBER(38, 0), 
-    etl_update_audit_key NUMBER(38, 0), 
+    etl_insert_invocation_id NVARCHAR,
+    etl_update_invocation_id NVARCHAR,  
     etl_row_effective_date timestamp_ltz(9), 
     etl_row_expiry_date timestamp_ltz(9), 
     etl_row_current_flag BOOLEAN, 
@@ -120,11 +111,6 @@ ALTER TABLE
     etl_update_datetime timestamp_ltz(9), 
     etl_insert_job_name VARCHAR(200), 
     etl_update_job_name VARCHAR(200));
-
-     
-    {{print("source copied to target")}}
-
-
     {% endset %}
 
 
@@ -148,8 +134,22 @@ ALTER TABLE
     {# inserting THE VALUESINTO target TABLE #}
     {% endif %}
 
-{{print("start")}}
+    {% set get_invocation_id %}
+        select 
+            invocation_id
+        from 
+            {{target_schema}}_meta.STG_DBT_AUDIT_LOG
+        where 
+            event_name = 'run started'
+        order by 
+            EVENT_TIMESTAMP
+        desc limit 1;
+    {% endset %}
 
+    {% if execute %}
+        {% set result = run_query(get_invocation_id) %}
+        {% set etl_invocation_id = (result.columns[0].values())[0] %}
+    {% endif %}
 
     {% set insert %}
 
@@ -161,8 +161,8 @@ ALTER TABLE
             {{ col }},
         {% endfor %}
     
-        {{ etl_insert_job_run_id }} AS etl_insert_job_run_id,
-        {{ etl_update_job_run_id }} AS etl_update_job_run_id,
+        '{{ etl_invocation_id }}' AS etl_insert_job_run_id,
+        '{{ etl_invocation_id }}' AS etl_update_job_run_id,
         CURRENT_TIMESTAMP AS etl_row_effective_date,
         CAST(
             '9999-12-31 23:59:59.999' AS timestamp_ltz
@@ -171,8 +171,8 @@ ALTER TABLE
         FALSE AS etl_row_deleted_flag,
         CURRENT_TIMESTAMP AS etl_insert_datetime,
         CURRENT_TIMESTAMP AS etl_update_datetime,
-        '{{etl_insert_job_name}}' AS etl_insert_job_name,
-        '{{etl_update_job_name}}' AS etl_update_job_name
+        '{{this.identifier}}' AS etl_insert_job_name,
+        '{{this.identifier}}' AS etl_update_job_name
     FROM {{ stg_table }}
 
     {% endset %}
@@ -188,7 +188,8 @@ ALTER TABLE
             {% do insert_dict.update( {"row_count":row_count})%}
             {% do run_dict.update( {"insert_dict" : insert_dict} )%}
 
-  {{print('insert executed')}}
+
+
 
     {% else %}
             {% set insert_dict ={} %}
@@ -198,11 +199,10 @@ ALTER TABLE
             
             {% do insert_dict.update( {"row_count":row_count})%}
             {% do run_dict.update( {"insert_dict" : insert_dict} )%}
-            {{print('insert Failed')}}
+            
 
     {% endif %}
 
     {{ log_job_plan(run_dict,target_schema,target_table) }}
 
 {% endmacro %}
-

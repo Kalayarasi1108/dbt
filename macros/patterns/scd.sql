@@ -1,4 +1,4 @@
-{%- macro scd(target_database,target_schema,target_table,source_database,source_schema,source_table,primary_keys_csv,effective_start_date,effective_end_date,etl_insert_job_run_id,etl_update_job_run_id,etl_insert_job_name,etl_update_job_name,src_date_column) %}
+{%- macro scd(target_database,target_schema,target_table,source_database,source_schema,source_table,primary_keys_csv,effective_start_date,effective_end_date,src_date_column) %}
  
     {% set run_dict = {} %}
 
@@ -18,10 +18,9 @@
     {%- do primary_edate_list.append(effective_start_date)%}
     {% do primary_edate_list.append(effective_end_date) %}
 
-    {% set source_relation = adapter.get_relation(database=source_database,schema=source_schema,identifier=source_table) %}
     {% set target_relation = adapter.get_relation(database=target_database,schema=target_schema,identifier=target_table) %}
     
-    {%- set src_columns = (adapter.get_columns_in_relation(source_relation)) -%}
+    {%- set src_columns = (adapter.get_columns_in_relation(this)) -%}
     {%- set src_columns_csv = get_quoted_csv(src_columns | map(attribute="column")) -%}
     {%- set src_columns_list = src_columns_csv.replace(' ', '').split(',') %}
     {%- for column in src_columns_list-%}
@@ -36,7 +35,7 @@
     {# set stage #}
     {% set sql_stg %}  
         CREATE OR REPLACE TEMPORARY TABLE {{src_table~"_STG"}} as (
-            select 
+            select  
                 {% for column in src_columns_list %}                
                     {% if column.replace('"','')!= src_date_column %}
                         {{column}}
@@ -66,7 +65,7 @@
                 "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                 
         {% do run_dict.update( {"stg_dict" : stg_dict} )%}
-        {{print('stg_sql_execution Failed')}}
+        
     {% endif %}
 {# ------------------------------------------------------------------------------------------------------------------ #}
     {% if target_relation is none %}
@@ -82,8 +81,8 @@
 
         ALTER TABLE {{tgt_table}} 
         ADD ( 
-            etl_insert_job_run_id NUMBER(38,0),
-            etl_update_job_run_id NUMBER(38,0),
+            etl_insert_invocation_id NVARCHAR,
+            etl_update_invocation_id NVARCHAR,
             ETL_EFFECTIVE_DATETIME TIMESTAMP_LTZ(9),
             ETL_EXPIRY_DATETIME TIMESTAMP_LTZ(9),
             ETL_CURRENT_FLAG BOOLEAN,
@@ -141,7 +140,7 @@
     ); 
     {% endset %}
     {% if execute %}
-    {{print('view_sql_executed')}}
+    
     {% endif %}
 {# ------------------------------------------------------------------------------------------------------------------ #}
     {# sql_stg_scd_original #}
@@ -168,7 +167,7 @@
     {% endset %}
     {% if execute %}
     {% do run_query(sql_stg_scd_original)%}
-    {{print('sql_stg_scd_original executed')}}
+    
     {% endif %}
 {# ------------------------------------------------------------------------------------------------------------------ #}
     {# sql_stg_scd_deduplicated #}
@@ -197,7 +196,7 @@
     {% endset %}
     {% if execute %}
     {% do run_query(sql_stg_scd_deduplicated) %}
-    {{print('sql_stg_scd_deduplicated executed ')}}
+   
     {% endif %}
 {# ------------------------------------------------------------------------------------------------------------------ #}
     {# stg_scd #}
@@ -246,7 +245,7 @@
     {% endset %}
     {% if execute %}
     {% do run_query (stg_scd) %}
-    {{print('stg_scd executed')}}
+   
     {% endif %}
 {# ------------------------------------------------------------------------------------------------------------------ #}
     {# sql_stg_cdc #}
@@ -339,7 +338,7 @@
             FULL OUTER JOIN {{ tgt_table }}
             tgt
             ON {% for key in primary_edate_list %}
-                ((TRIM(src.{{ key }}) = TRIM(tgt.{{ key }}))
+                ((src.{{ key }} = tgt.{{ key }})
                 OR (src.{{ key }} IS NULL
                 AND tgt.{{ key }} IS NULL)) 
                 {% if not loop.last %}
@@ -354,7 +353,7 @@
                 {% endif %}
             {% endfor %})
             OR (tgt.etl_current_flag = TRUE
-            AND tgt.etl_insert_job_name = '{{etl_insert_job_name}}')
+            AND tgt.etl_insert_job_name = '{{this.identifier}}')
     );
     {% endset %}
 {# ------------------------------------------------------------------------------------------------------------------ #}
@@ -371,7 +370,7 @@
         )%}
                         
         {% do run_dict.update( {"cdc_dict" : cdc_dict} )%}
-        {{print('sql_stg_cdc executed')}}
+        
     {% else %}
         {% do cdc_dict.update( 
             {"row_count":0,"job_activity" : "SCD",
@@ -381,34 +380,36 @@
             "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} 
         )%}
         {% do run_dict.update( {"cdc_dict" : cdc_dict} )%}
-        {{print('sql_stg_cdc failed')}}
+       
     {% endif %}
 {# ------------------------------------------------------------------------------------------------------------------ #}
-    {% set fetch_last_update_run_id %}
-        SELECT max(etl_update_job_run_id)
-        FROM {{tgt_table}};
+    {% set get_invocation_id %}
+        select 
+            invocation_id
+        from 
+            {{target_schema}}_meta.STG_DBT_AUDIT_LOG
+        where 
+            event_name = 'run started'
+        order by 
+            EVENT_TIMESTAMP
+        desc limit 1;
     {% endset %}
+
     {% if execute %}
-        {% set result = run_query(fetch_last_update_run_id) %}    
-        {% set update_run_id = result.columns[0].values() %}  
-        {{print(update_run_id[0])}}
-        {% if update_run_id[0] is none %}
-            {% set etl_update_job_run_id = 1 %}
-        {% else %}
-            {% set etl_update_job_run_id = (update_run_id[0] + 1) %}
-        {% endif %}
-    {% endif %} 
+        {% set result = run_query(get_invocation_id) %}
+        {% set etl_invocation_id = (result.columns[0].values())[0] %}
+    {% endif %}
 {# ------------------------------------------------------------------------------------------------------------------ #}
     {# sql_tgt_update #}
     {% set sql_tgt_update %}
     UPDATE {{tgt_table}}
     SET
-        etl_update_job_run_id = {{etl_update_job_run_id}},
-        etl_update_job_name = '{{etl_update_job_name}}',
+        etl_update_invocation_id = '{{etl_invocation_id}}',
+        etl_update_job_name = '{{this.identifier}}',
         ETL_EXPIRY_DATETIME = DATEADD(second,-1,src.ETL_EFFECTIVE_DATETIME),
         ETL_CURRENT_FLAG = 0,
         ETL_UPDATE_DATETIME = CURRENT_TIMESTAMP,
-        EFFECTIVE_END_DATETIME=DATEADD(second,-1,src.EFFECTIVE_START_DATETIME)
+        EFFECTIVE_END_DATETIME= DATEADD(second,-1,src.EFFECTIVE_START_DATETIME)
     FROM {{src_table~"_STG_CDC"}} src
     WHERE
         (src.ETL_UPDATED_FLAG = 'Y' OR src.ETL_DELETED_FLAG = 'Y')
@@ -416,15 +417,15 @@
         {{target_table}}.ETL_CURRENT_FLAG = TRUE
         AND
             {% for key in primary_edate_list %}
-                ((TRIM({{tgt_table}}.{{key}}) = TRIM(src.{{key}}))
+                (({{tgt_table}}.{{key}} = src.{{key}})
 		        OR ({{tgt_table}}.{{key}} IS NULL
 			    AND src.{{key}} IS NULL))
                 AND
             {% endfor %}
-        {{tgt_table}}.etl_insert_job_name = '{{etl_insert_job_name}}';
+        {{tgt_table}}.etl_insert_job_name = '{{this.identifier}}';
     {% endset %}
 {# ------------------------------------------------------------------------------------------------------------------ #}
-    {% if execute %}
+     {% if execute %}
             {% do run_query(sql_tgt_update) %}
             {% set update_dict ={} %}
             {% do update_dict.update( {"row_count":0,"job_activity" : "SCD","job_status" : "Successful",           
@@ -432,7 +433,7 @@
                     "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                     
             {% do run_dict.update( {"update_dict" : update_dict} )%}
-            {{print('sql_tgt_update executed')}}
+            
     {% else %}
             {% set update_dict ={} %}
             {% do update_dict.update( {"row_count":0,"job_activity" : "SCD","job_status" : "Failed",           
@@ -440,23 +441,9 @@
                     "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                     
             {% do run_dict.update( {"update_dict" : update_dict} )%}
-            {{print('sql_tgt_update Failed')}}
-    {% endif %}
-{# ------------------------------------------------------------------------------------------------------------------ #}
-    {% set fetch_last_insert_run_id %}
-        SELECT max(etl_insert_job_run_id)
-        FROM {{tgt_table}};
-    {% endset %}
-    {% if execute %}
-        {% set result = run_query(fetch_last_insert_run_id) %}    
-        {% set insert_run_id = result.columns[0].values() %}  
-        {{print(insert_run_id[0])}}
-        {% if insert_run_id[0] is none %}
-            {% set etl_insert_job_run_id = 1 %}
-        {% else %}
-            {% set etl_insert_job_run_id = (insert_run_id[0] + 1) %}
-        {% endif %}
+           
     {% endif %} 
+
 {# ------------------------------------------------------------------------------------------------------------------ #}
     {% set insert %}
       INSERT INTO {{tgt_table}}
@@ -465,8 +452,8 @@
         {{column}},
         {% endfor %}
         {{effective_end_date}},
-        {{etl_insert_job_run_id}} as etl_insert_job_run_id,
-        NULL as etl_update_job_run_id,
+        '{{etl_invocation_id}}' as etl_insert_invocation_id,
+        NULL as etl_update_invocation_id,
         ETL_EFFECTIVE_DATETIME AS ETL_EFFECTIVE_DATETIME,
         CAST('9999-12-31 23:59:59.999' AS TIMESTAMP_LTZ) AS ETL_EXPIRY_DATETIME,
         TRUE AS ETL_CURRENT_FLAG,
@@ -476,14 +463,14 @@
         END AS ETL_DELETED_FLAG,
         CURRENT_TIMESTAMP AS ETL_INSERT_DATETIME,
         NULL AS ETL_UPDATE_DATETIME ,
-        '{{etl_insert_job_name}}' AS etl_insert_job_name,
+        '{{this.identifier}}' AS etl_insert_job_name,
         NULL AS etl_update_job_name
     FROM {{src_table~"_STG_CDC"}}
     WHERE
         ETL_UPDATED_FLAG = 'Y'
         OR ETL_DELETED_FLAG = 'Y'
-        OR ETL_NEW_ROW_FLAG = 'Y'
-    {% endset %}
+        OR ETL_NEW_ROW_FLAG = 'Y';
+     {% endset %}
 {# ------------------------------------------------------------------------------------------------------------------ #}
     {% if execute %}
             {% set result = run_query(insert) %}
@@ -496,7 +483,7 @@
             
             {% do insert_dict.update( {"row_count":row_count})%}
             {% do run_dict.update( {"insert_dict" : insert_dict} )%}
-            {{print('insert executed')}}
+            
     {% else %}
             {% set insert_dict ={} %}
             {% do insert_dict.update( {"job_activity" : "SCD","job_status" : "Failed",           
@@ -505,8 +492,8 @@
             
             {% do insert_dict.update( {"row_count":row_count})%}
             {% do run_dict.update( {"insert_dict" : insert_dict} )%}
-            {{print('insert Failed')}}
-    {% endif %}
+           
+    {% endif %} 
 {# ------------------------------------------------------------------------------------------------------------------ #}
     {{ log_job_plan(run_dict,target_schema,target_table)}}
 

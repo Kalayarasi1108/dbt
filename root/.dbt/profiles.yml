@@ -1,0 +1,14 @@
+dbt_final:
+  target: dev
+  outputs:
+    dev:
+      account: oh90776.central-india.azure
+      database: DBT_DEV_DB
+      password: DbT~&W@devetL
+      role: DBT_DEV_ROLE
+      schema: KALAYARASI
+      threads: 10
+      type: snowflake
+      user: DBT_DEV_ETL_USER
+      warehouse: DBT_DEV_WH
+     

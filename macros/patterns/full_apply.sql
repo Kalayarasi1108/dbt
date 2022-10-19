@@ -1,26 +1,28 @@
-{%- macro full_apply(target_database,target_schema,target_table,source_database,source_schema,source_table,primary_keys_csv,etl_columns,etl_insert_run_id,etl_insert_job_name,etl_update_run_id,etl_update_job_name) %}
+{%- macro full_apply(target_database,target_schema,target_table,source_database,source_schema,source_table,primary_keys_csv,etl_columns) %}
     {# Getting Relation for source and target table using adapter function #}
     {% set run_dict = {} %}
 
     ALTER SESSION
     set timezone='Asia/Kolkata';
-      
-    {% set source_relation = adapter.get_relation(database=source_database,schema=source_schema,identifier=source_table) %}
+    
     {% set target_relation = adapter.get_relation(database=target_database,schema=target_schema,identifier=target_table) %}
     {# Primary Key List  #}
-    {%- set primary_keys_list = (primary_keys_csv.split(',')) -%}
+    {%- set primary_keys_list = primary_keys_csv.split(',') -%}
     {# Creating stage table  #}
-
+   
     {# Declaring stage file path #}
     {%- set stg_table = source_database~'.'~source_schema~'.'~source_table ~ "_STG" -%}
+    
+{# ------------------------------------------------------------------------------------------------------------------ #}
     {# select query for creating stage file from source #}
-    {% set sql_stg %}
+    {% set sql_stg %} 
     {%- set stg_sql %}
         select * from {{source_database}}.{{source_schema}}.{{source_table}}
     {% endset -%}
     {# Creating stage table using default function create_table_as(true[temporary]/false[transient],table path,sql ) #}
-    {{ create_table_as(false, stg_table, stg_sql) }}
+    {{ create_table_as(true, stg_table,stg_sql) }}
     {% endset %}
+{# ------------------------------------------------------------------------------------------------------------------ #}
     {% set result =  run_query(sql_stg) %}
     {% set stg_dict ={} %}
     {% set status = result.columns[0].values()[0]%}
@@ -36,33 +38,39 @@
                 "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                 
         {% do run_dict.update( {"stg_dict" : stg_dict} )%}
-        {{print('stg_sql_execution Failed')}}
+       
     {% endif %}
-
+{# ------------------------------------------------------------------------------------------------------------------ #}
     {# Getting Column Names and Removing ETL Columns  #}
-    {%- set src_columns = (adapter.get_columns_in_relation(source_relation)) -%}
+    {%- set src_columns = (adapter.get_columns_in_relation(source_database~'.'~source_schema~'.'~source_table)) -%}
     {%- set src_non_etl_columns_csv = get_quoted_csv(src_columns | map(attribute="column")) -%}
     {%- set src_non_etl_columns_list = src_non_etl_columns_csv.replace(" ", "").split(',') %}
-        
-    {# {%- for column in src_non_etl_columns_list-%}
-        
+    
+    {%- for column in src_non_etl_columns_list-%}
         {% set src_column = column.replace('"', '') %}
         {%- if(src_column.startswith('ETL_') or src_column.startswith('WATERMARK_')) or
            'JOB_NAME' in src_column or 'EFFECTIVE_START_DATETIME' in src_column or  'EFFECTIVE_END_DATETIME' in src_column-%}
-           {{print(column)}}
+           
             {%- do src_non_etl_columns_list.remove(column) %}
             alter table {{stg_table}} drop column {{ src_column}};
         {%  endif %}
-    {% endfor %} #}
+    {% endfor %}
+
     {%- set tgt_table= target_database~'.'~target_schema~'.'~target_table-%}
     {%- set etl_list = (etl_columns.split(',')) -%}
-    
-    
+{# ------------------------------------------------------------------------------------------------------------------ #}
     {%- if target_relation is none  -%} 
         {# Creating Target Table #}
         {% set sql_tgt %}
         {%- set tgt_sql %}
-            select * from {{stg_table}} where 1=2
+            select 
+                {% for col in src_non_etl_columns_list %}
+                    {{col}}
+                    {% if not loop.last %}
+                    ,
+                    {% endif %}
+                {% endfor %}
+            from {{stg_table}} where 1=2
         {% endset -%}
         {{ create_table_as(false, tgt_table, tgt_sql) }}
         
@@ -70,8 +78,8 @@
         ALTER TABLE {{tgt_table}} 
         ADD ( 
 
-            {{etl_list[0]}} NUMBER(38,0),                      
-            {{etl_list[1]}} NUMBER(38,0),
+            etl_insert_invocation_id NVARCHAR,
+            etl_update_invocation_id NVARCHAR,
             {{etl_list[2]}} TIMESTAMP_LTZ(9),
             {{etl_list[3]}} TIMESTAMP_LTZ(9),
             {{etl_list[4]}} BOOLEAN,
@@ -104,7 +112,7 @@
         {% endif %}
 
     {% endif %}
-
+{# ------------------------------------------------------------------------------------------------------------------ #}
     {# Renaming Columns without underscore and getting active records #}
     {%- set tgt_cur_vw = tgt_table~'_VW'-%}
     CREATE OR REPLACE TEMPORARY VIEW {{tgt_cur_vw}} AS (
@@ -118,10 +126,11 @@
         FROM {{tgt_table}}
         WHERE {{etl_list[4]}} = TRUE AND {{etl_list[5]}} = FALSE
     ); 
-    
+{# ------------------------------------------------------------------------------------------------------------------ #}   
     {# Creating CDC Table #}
     {%- set cdc_table = source_schema~'.'~source_table ~ "_CDC" -%}
     {% set sql_cdc %}
+    
     CREATE OR REPLACE TABLE {{cdc_table}} AS 
     (
         SELECT
@@ -225,6 +234,7 @@
 ALTER TABLE {{cdc_table}} 
 SET data_retention_time_in_days = 0;
 {% endset %} 
+{# ------------------------------------------------------------------------------------------------------------------ #}
         {% set result =  run_query(sql_cdc) %}
             {% set cdc_dict ={} %}
             {% set status = result.columns[0].values()[0]%}
@@ -234,22 +244,39 @@ SET data_retention_time_in_days = 0;
                     "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                     
             {% do run_dict.update( {"cdc_dict" : cdc_dict} )%}
-            {{print('sql_stg_cdc executed')}}
+            
             {% else %}
             {% do cdc_dict.update( {"row_count":0,"job_activity" : "FULL APPLY","job_status" : "Failed",           
                     "job_message" : 'Creating CDC',"model_name" : this.identifier,
                     "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                     
             {% do run_dict.update( {"cdc_dict" : cdc_dict} )%}
-            {{print('sql_stg_cdc failed')}}
+            
             {% endif %} 
+{# ------------------------------------------------------------------------------------------------------------------ #}
+      {% set get_invocation_id %}
+        select 
+            invocation_id
+        from 
+            {{target_schema}}_meta.STG_DBT_AUDIT_LOG
+        where 
+            event_name = 'run started'
+        order by 
+            EVENT_TIMESTAMP
+        desc limit 1;
+    {% endset %}
 
+    {% if execute %}
+        {% set result = run_query(get_invocation_id) %}
+        {% set etl_invocation_id = (result.columns[0].values())[0] %}
+    {% endif %}
+{# ------------------------------------------------------------------------------------------------------------------ #}
 {# Update #}
 {% set sql_update %}
 UPDATE {{tgt_table}}
 SET 
-	{{etl_list[1]}} =  '{{etl_update_run_id}}', 
-    {{etl_list[9]}} =  '{{etl_update_job_name}}',
+	{{etl_list[1]}} =  '{{etl_invocation_id}}', 
+    {{etl_list[9]}} =  '{{this.identifier}}',
 	{{etl_list[3]}} =  DATEADD(millisecond,-1,src.{{etl_list[2]}}),
 	{{etl_list[4]}} = 0,
 	{{etl_list[7]}} = CURRENT_TIMESTAMP
@@ -269,6 +296,7 @@ FROM
         {% endfor %}        
         );
 {% endset%}
+{# ------------------------------------------------------------------------------------------------------------------ #}
 {% if execute %}
             {% do run_query(sql_update) %}
             {% set update_dict ={} %}
@@ -277,7 +305,7 @@ FROM
                     "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                     
             {% do run_dict.update( {"update_dict" : update_dict} )%}
-            {{print('sql_update executed')}}
+            
     {% else %}
             {% set update_dict ={} %}
             {% do update_dict.update( {"row_count":0,"job_activity" : "FULL APPLY","job_status" : "Failed",           
@@ -285,16 +313,18 @@ FROM
                     "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                     
             {% do run_dict.update( {"update_dict" : update_dict} )%}
-            {{print('sql_update Failed')}}
+            
     {% endif %}
+{# ------------------------------------------------------------------------------------------------------------------ #}
 {# Inserting  #}
+
 {% set insert %}
 INSERT INTO {{ tgt_table}}
 select 
 {% for col in src_non_etl_columns_list %}
                 {{(col)}},
 {% endfor %} 
-{{etl_insert_run_id}} AS {{etl_list[0]}},
+'{{etl_invocation_id}}' AS {{etl_list[0]}},
 NULL AS {{etl_list[1]}},
 {{etl_list[2]}},
 CAST('9999-12-31 23:59:59.999' AS timestamp_ltz) AS {{etl_list[3]}},
@@ -305,7 +335,7 @@ CASE
 END AS {{etl_list[5]}},
 CURRENT_TIMESTAMP AS {{etl_list[6]}},
 NULL AS {{etl_list[7]}},
-'{{etl_insert_job_name}}' AS {{etl_list[8]}},
+'{{this.identifier}}' AS {{etl_list[8]}},
 NULL AS {{etl_list[9]}}
 from {{cdc_table}}  
 where
@@ -313,6 +343,7 @@ where
     {{etl_list[5]}} = 'Y' OR
     etl_new_row_flag = 'Y' ;
     {% endset%}
+{# ------------------------------------------------------------------------------------------------------------------ #}
 {% if execute %}
             {% set result = run_query(insert) %}
             {% set return_value  = result.columns[0].values() %}
@@ -324,7 +355,7 @@ where
             
             {% do insert_dict.update( {"row_count":row_count})%}
             {% do run_dict.update( {"insert_dict" : insert_dict} )%}
-            {{print('insert executed')}}
+            
     {% else %}
             {% set insert_dict ={} %}
             {% do insert_dict.update( {"job_activity" : "FULL APPLY","job_status" : "Failed",           
@@ -333,9 +364,10 @@ where
             
             {% do insert_dict.update( {"row_count":row_count})%}
             {% do run_dict.update( {"insert_dict" : insert_dict} )%}
-            {{print('insert Failed')}}
+          
 
     {% endif %}
+{# ------------------------------------------------------------------------------------------------------------------ #}
     {{ log_job_plan(run_dict,target_schema,target_table)}}
-
+{# ------------------------------------------------------------------------------------------------------------------ #}
 {%- endmacro -%} 

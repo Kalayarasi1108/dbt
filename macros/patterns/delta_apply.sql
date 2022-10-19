@@ -1,4 +1,4 @@
-{%- macro delta_apply(target_database,target_schema,target_table,source_database,source_schema,source_table,primary_keys_csv,etl_insert_job_run_id,etl_update_job_run_id,etl_insert_job_name,etl_update_job_name) %}
+{%- macro delta_apply(target_database,target_schema,target_table,source_database,source_schema,source_table,primary_keys_csv) %}
     {% set run_dict = {} %}
 
     {% if  primary_keys_csv== 'NULL' or primary_keys_csv =='' %}
@@ -10,10 +10,9 @@
     {%- set src_table = source_database~'.'~source_schema~'.'~source_table -%}
     {%- set tgt_table = target_database~'.'~target_schema~'.'~target_table -%}
 
-    {% set source_relation = adapter.get_relation(database=source_database,schema=source_schema,identifier=source_table) %}
     {% set target_relation = adapter.get_relation(database=target_database,schema=target_schema,identifier=target_table) %}
     
-    {%- set src_columns = (adapter.get_columns_in_relation(source_relation)) -%}
+    {%- set src_columns = (adapter.get_columns_in_relation(this)) -%}
     {%- set src_columns_csv = get_quoted_csv(src_columns | map(attribute="column")) -%}
     {%- set src_columns_list = src_columns_csv.replace(" ", "").split(',') %}
 
@@ -45,21 +44,21 @@
     {% set result =  run_query(sql_stg) %}
     {% set stg_dict ={} %}
     {% set status = result.columns[0].values()[0]%}
-    {# {{print(status)}} #}
+    
     {% if 'successfully' in status %}
         {% do stg_dict.update( {"row_count":0,"job_activity" : "DELTA","job_status" : "Successful",           
                 "job_message" : 'Creating Stage',"model_name" : this.identifier,
                 "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                 
         {% do run_dict.update( {"stg_dict" : stg_dict} )%}
-        {{print('stg_sql_execution Successfull')}}
+       
     {% else %}
         {% do stg_dict.update( {"row_count":0,"job_activity" : "DELTA","job_status" : "Failed",           
                 "job_message" : 'Creating Stage',"model_name" : this.identifier,
                 "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                 
         {% do run_dict.update( {"stg_dict" : stg_dict} )%}
-        {{print('stg_sql_execution Failed')}}
+        
     {% endif %}
 
     {%- if target_relation is none  -%} 
@@ -81,8 +80,8 @@
         {# Adding ETL Columns - Sandhiya#}
         ALTER TABLE {{tgt_table}} 
         ADD ( 
-            ETL_INSERT_JOB_RUN_ID NUMBER(38,0), 
-            ETL_UPDATE_JOB_RUN_ID NUMBER(38,0),
+            etl_insert_invocation_id NVARCHAR,
+            etl_update_invocation_id NVARCHAR,
             ETL_EFFECTIVE_DATETIME TIMESTAMP_LTZ(9),
             ETL_EXPIRY_DATETIME TIMESTAMP_LTZ(9),
             ETL_CURRENT_FLAG BOOLEAN,
@@ -174,7 +173,7 @@
 	    FROM {{src_table~"_STG"}} src
         LEFT JOIN {{tgt_table}} tgt ON
             {% for key in primary_keys_list %}
-                  ((TRIM(src.{{ key }}) = TRIM(tgt.{{ key }}))
+                  ((src.{{ key }} = tgt.{{ key }})
                 OR (src.{{ key }} IS NULL
                 AND tgt.{{ key }} IS NULL)) 
                 {% if not loop.last %}
@@ -189,7 +188,7 @@
                 {% endif %}
             {% endfor %})
             OR (tgt.etl_current_flag = TRUE
-            AND tgt.etl_insert_job_name = '{{etl_insert_job_name}}')
+            AND tgt.etl_insert_job_name = '{{this.identifier}}')
     );
     {% endset %}
     ALTER TABLE {{tgt_table~"_CDC"}} 
@@ -204,22 +203,40 @@
                     "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                     
             {% do run_dict.update( {"cdc_dict" : cdc_dict} )%}
-            {{print('sql_cdc executed')}}
+            
             {% else %}
             {% do cdc_dict.update( {"row_count":0,"job_activity" : "DELTA","job_status" : "Failed",           
                     "job_message" : 'Creating CDC',"model_name" : this.identifier,
                     "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                     
             {% do run_dict.update( {"cdc_dict" : cdc_dict} )%}
-            {{print('sql_cdc failed')}}
+            
             {% endif %}
+{# ------------------------------------------------------------------------------------------------------------------ #}
+    {% set get_invocation_id %}
+        select 
+            invocation_id
+        from 
+            {{target_schema}}_meta.STG_DBT_AUDIT_LOG
+        where 
+            event_name = 'run started'
+        order by 
+            EVENT_TIMESTAMP
+        desc limit 1;
+    {% endset %}
+
+    {% if execute %}
+        {% set result = run_query(get_invocation_id) %}
+        {% set etl_invocation_id = (result.columns[0].values())[0] %}
+    {% endif %}
+{# ------------------------------------------------------------------------------------------------------------------ #}
 
     {# sql_tgt_update #}
     {% set sql_tgt_update %}
     UPDATE {{tgt_table}}
     SET
-    ETL_UPDATE_JOB_RUN_ID = {{etl_update_job_run_id}},
-    ETL_UPDATE_JOB_NAME= '{{etl_update_job_name}}',
+    etl_update_invocation_id = '{{etl_invocation_id}}',
+    ETL_UPDATE_JOB_NAME= '{{this.identifier}}',
     ETL_EXPIRY_DATETIME=DATEADD(millisecond,-1,src.ETL_EFFECTIVE_DATE),
     ETL_Current_Flag = 0,
     ETL_UPDATE_DATETIME=CURRENT_TIMESTAMP
@@ -231,14 +248,14 @@
 	AND {{tgt_table}}.ETL_CURRENT_FLAG = TRUE
 	AND 
     {% for key in primary_keys_list %}
-      ((TRIM({{tgt_table}}.{{key}}) = TRIM(src.{{key}}))
+      (({{tgt_table}}.{{key}} = src.{{key}})
 		OR ({{tgt_table}}.{{key}} IS NULL
 			AND src.{{key}} IS NULL))
         {% if not loop.last %}
           AND
         {% endif %}
     {% endfor %}
-	AND {{tgt_table}}.ETL_Insert_Job_Name = '{{etl_insert_job_name}}';
+	AND {{tgt_table}}.ETL_Insert_Job_Name = '{{this.identifier}}';
     {% endset %}
         {% if execute %}
             {% do run_query(sql_tgt_update) %}
@@ -248,7 +265,7 @@
                     "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                     
             {% do run_dict.update( {"update_dict" : update_dict} )%}
-            {{print('sql_tgt_update executed')}}
+            
     {% else %}
             {% set update_dict ={} %}
             {% do update_dict.update( {"row_count":0,"job_activity" : "DELTA","job_status" : "Failed",           
@@ -256,8 +273,10 @@
                     "created_timestamp":modules.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} )%}
                     
             {% do run_dict.update( {"update_dict" : update_dict} )%}
-            {{print('sql_tgt_update Failed')}}
+            
     {% endif %}
+    
+{# ------------------------------------------------------------------------------------------------------------------ #}
 
      {% set insert %}
     INSERT INTO {{tgt_table}}
@@ -266,9 +285,9 @@
         {% for column in src_columns_list %}
           {{column}},
         {% endfor %}
-        {{etl_insert_job_run_id}} AS etl_insert_job_run_id,
+        '{{etl_invocation_id}}' AS etl_insert_invocation_id,
 
-        NULL AS etl_update_job_run_id,
+        NULL AS etl_update_invocation_id,
 
         ETL_EFFECTIVE_DATE AS ETL_EFFECTIVE_DATETIME,
 
@@ -292,7 +311,7 @@
 
         CURRENT_TIMESTAMP AS etl_update_datetime,
 
-        '{{etl_insert_job_name}}' AS etl_insert_job_name,
+        '{{this.identifier}}' AS etl_insert_job_name,
 
         NULL AS etl_update_job_name
 
@@ -318,7 +337,7 @@
             
             {% do insert_dict.update( {"row_count":row_count})%}
             {% do run_dict.update( {"insert_dict" : insert_dict} )%}
-            {{print('insert executed')}}
+            
     {% else %}
             {% set insert_dict ={} %}
             {% do insert_dict.update( {"job_activity" : "DELTA","job_status" : "Failed",           
@@ -327,7 +346,7 @@
             
             {% do insert_dict.update( {"row_count":row_count})%}
             {% do run_dict.update( {"insert_dict" : insert_dict} )%}
-            {{print('insert Failed')}}
+        
 
     {% endif %}
         {{ log_job_plan(run_dict,target_schema,target_table)}}

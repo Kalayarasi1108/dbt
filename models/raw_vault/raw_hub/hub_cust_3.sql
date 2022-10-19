@@ -1,6 +1,6 @@
 {%- set source_model      = "hash_stage"    -%}
-{%- set src_pk            = "CUST_HK"       -%}
-{%- set src_nk            = "CUST_ID"       -%}
+{%- set src_pk            = "PRIMARY_HK"    -%}
+{%- set src_nk            = ["CUST_ID","CUST_NAME"]  -%}
 {%- set src_ldts          = "LOAD_DATETIME" -%}
 {%- set src_source        = "RECORD_SOURCE" -%}
 
@@ -11,31 +11,36 @@
 {% set src_extra_columns = [] %}
 
 {% for column in hash_stage_col_list %}
-  {% if (column.replace('"','') not in [src_pk,src_nk,src_ldts,src_source]) and (column.replace('"','').startswith('EFFECTIVE_')==False) %}
+  {% if (column.replace('"','') not in [src_pk,src_ldts,src_source]) and (column.replace('"','') not in src_nk) and (column.replace('"','').startswith('EFFECTIVE_')==False) %}
     {% do src_extra_columns.append(column)%}
   {% endif %}
 {% endfor %}
 
+{% set hub_relation = adapter.get_relation(database=this.database,schema=this.schema,identifier=this.identifier) %}
+
+{% if hub_relation is none %}
+    {% set hub %}
+        create or replace view {{this}} as(
+            {{ dbtvault.hub(src_pk=src_pk, src_nk=src_nk,src_extra_columns=src_extra_columns, src_ldts=src_ldts,
+                        src_source=src_source, source_model=source_model) }}
+        );
+    {% endset %}
+  {% do run_query(hub)%}
+{% endif %}
 
 {{config(
     materialized='delta_patterns',
-    primary_keys= src_nk ,
+    primary_keys= src_pk,
     target_database= 'DBT_DEV_DB',
     target_schema= 'KALAYARASI',
-    target_table= 'VAULT_DELTA_APPLY_TARGET',
+    target_table= 'VAULT_DELTA_TARGET',
     job_name='DELTA',
-    etl_insert_job_run_id = '1022',
-    etl_update_job_run_id = '1023',
-    etl_insert_job_name = 'INSERTED',
-    etl_update_job_name = 'UPDATED',
     src_date_column='LOAD_DATETIME',
     effective_start_date='EFFECTIVE_START_DATETIME',
     effective_end_date='EFFECTIVE_END_DATETIME'
 )}} 
 
 
-WITH HUB AS(
+
 {{ dbtvault.hub(src_pk=src_pk, src_nk=src_nk,src_extra_columns=src_extra_columns, src_ldts=src_ldts,
                 src_source=src_source, source_model=source_model) }}
-)
-select * from HUB

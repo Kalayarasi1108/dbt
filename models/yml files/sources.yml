@@ -16,7 +16,6 @@ sources:
           - name: c_custkey
             description: It is the primary key column for customer table.
             tests :
-                - unique
                 - not_null
           - name: c_name
             description: It is the name column for Customer table
@@ -63,7 +62,6 @@ sources:
           - name: n_nationkey
             description: It is the primary key column for nation table.
             tests :
-                - unique
                 - not_null
           - name: n_name
             description: It is the name column for nation table

@@ -5,8 +5,7 @@ derived_columns:
   LOAD_DATETIME: effective_date
   EFFECTIVE_FROM: effective_date
 hashed_columns:
-  CUST_HK: "CUST_ID"
-  ID_NAME_HK:
+  PRIMARY_HK:
     - "CUST_ID"
     - "CUST_NAME"
 

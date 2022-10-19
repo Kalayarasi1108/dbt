@@ -7,7 +7,6 @@ models:
         - name: cust_id
           description: It is the primary key column for customer table.
           tests :
-              - unique
               - not_null
         - name: cust_name
           description: It is the name column for Customer table
@@ -41,12 +40,11 @@ models:
         - name: CUST_ID
           description: It is the foreign key column as will as natural key for source table.
           tests:
-              - unique
               - not_null
               - relationships:
                   to: ref('raw_stage')
                   field: cust_id
-        - name: CUST_HK
+        - name: PRIMARY_HK
           description: It is the hashed value column for primary key. It is business key column
           tests:
               - unique
@@ -89,7 +87,6 @@ models:
         - name: CUST_ID
           description: It is the foreign key column as will as natural key for source table.
           tests:
-            - unique
             - not_null
             - relationships:
                 to: ref('hash_stage')
